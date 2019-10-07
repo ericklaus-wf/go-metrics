@@ -150,7 +150,7 @@ func (s *ExpDecaySample) Values() []int64 {
 	vals := s.values.Values()
 	values := make([]int64, len(vals))
 	for i, v := range vals {
-		values[i] = v.v
+		values[i] = int64(math.RoundToEven(float64(v.v) * v.weight))
 	}
 	return values
 }
@@ -170,9 +170,11 @@ func (s *ExpDecaySample) update(t time.Time, v int64) {
 	if s.values.Size() == s.reservoirSize {
 		s.values.Pop()
 	}
+	weight := math.Exp(t.Sub(s.t0).Seconds() * s.alpha)
 	s.values.Push(expDecaySample{
-		k: math.Exp(t.Sub(s.t0).Seconds()*s.alpha) / rand.Float64(),
-		v: v,
+		weight:   weight,
+		priority: weight / rand.Float64(),
+		v:        v,
 	})
 }
 
@@ -183,8 +185,10 @@ func (s *ExpDecaySample) rescaleIfNeeded(t time.Time) {
 		s.values.Clear()
 		s.t0 = t
 		s.t1 = s.t0.Add(rescaleThreshold)
+		rescaleFactor := math.Exp(-s.alpha * s.t0.Sub(t0).Seconds())
 		for _, v := range values {
-			v.k = v.k * math.Exp(-s.alpha*s.t0.Sub(t0).Seconds())
+			v.priority *= rescaleFactor
+			v.weight *= rescaleFactor
 			s.values.Push(v)
 		}
 	}
@@ -541,7 +545,11 @@ func (s *UniformSample) Variance() float64 {
 
 // expDecaySample represents an individual sample in a heap.
 type expDecaySample struct {
-	k float64
+	// priority is a sample's longevity. Lower priorities are removed from the heap first.
+	priority float64
+	// weight is the factor applied to v to determine this sample's true value.
+	weight float64
+	// v is this sample's value
 	v int64
 }
 
@@ -588,7 +596,7 @@ func (h *expDecaySampleHeap) Values() []expDecaySample {
 func (h *expDecaySampleHeap) up(j int) {
 	for {
 		i := (j - 1) / 2 // parent
-		if i == j || !(h.s[j].k < h.s[i].k) {
+		if i == j || !(h.s[j].priority < h.s[i].priority) {
 			break
 		}
 		h.s[i], h.s[j] = h.s[j], h.s[i]
@@ -603,10 +611,10 @@ func (h *expDecaySampleHeap) down(i, n int) {
 			break
 		}
 		j := j1 // left child
-		if j2 := j1 + 1; j2 < n && !(h.s[j1].k < h.s[j2].k) {
+		if j2 := j1 + 1; j2 < n && !(h.s[j1].priority < h.s[j2].priority) {
 			j = j2 // = 2*i + 2  // right child
 		}
-		if !(h.s[j].k < h.s[i].k) {
+		if !(h.s[j].priority < h.s[i].priority) {
 			break
 		}
 		h.s[i], h.s[j] = h.s[j], h.s[i]

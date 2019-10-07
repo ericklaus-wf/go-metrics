@@ -171,11 +171,21 @@ func TestExpDecaySampleNanosecondRegression(t *testing.T) {
 
 func TestExpDecaySampleRescale(t *testing.T) {
 	s := NewExpDecaySample(2, 0.001).(*ExpDecaySample)
-	s.update(time.Now(), 1)
-	s.update(time.Now().Add(time.Hour+time.Microsecond), 1)
+	s.update(time.Now(), 99)
+	max := s.Max()
+	if max != 99 {
+		t.Errorf("max != 99: %v\n", max)
+	}
+
+	s.update(time.Now().Add(rescaleThreshold+time.Microsecond), 1)
+	max = s.Max()
+	// expect that max is not 99 (it should be very close to 1)
+	if max == 99 {
+		t.Error("max still == 99")
+	}
 	for _, v := range s.values.Values() {
-		if v.k == 0.0 {
-			t.Fatal("v.k == 0.0")
+		if v.priority == 0.0 {
+			t.Error("v.priority == 0.0")
 		}
 	}
 }
